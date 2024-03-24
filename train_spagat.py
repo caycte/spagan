@@ -71,7 +71,7 @@ from utils import accuracy, load_data_orggcn, load_pathm, gen_pathm
 from models_spagat import SpaGAT
 
 # Load data
-adj, features, labels, idx_train, idx_val, idx_test = load_data_orggcn(args.dataset)
+adj, features,  idx_train, idx_val, idx_test, train_mask, val_mask, test_mask,labels ,adj_ad= load_data_orggcn(args.dataset)
 
 pathM = None                # initial pathM to None
 if args.cuda:
@@ -127,7 +127,8 @@ for var in range(args.var_it):
             nclass=labels.max().item() + 1,
             dropout=args.dropout,
             nheads=args.nheads,
-            alpha=args.alpha
+            alpha=args.alpha,
+            adj_ad=adj_ad,
             )
     # optimizer
     optimizer = optim.Adam(model.parameters(),
@@ -171,6 +172,9 @@ for var in range(args.var_it):
                 pathM = load_pathm(args.dataset, matpath=matpath)
                 mode = 'SPAGAN'
             elif mode == 'SPAGAN':
+                test(logging=True, mode=mode)
+                mode = 'ADSF'
+            elif mode == 'ADSF':
                 test(logging=True, mode=mode)
                 break
             startEpoch = epoch

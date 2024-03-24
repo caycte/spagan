@@ -8,6 +8,7 @@ import graph_tool.topology as g_topo
 import graph_tool.generation as g_gen
 import networkx as nx
 import sys
+from tqdm import tqdm
 
 
 def encode_onehot(labels):
@@ -132,13 +133,11 @@ def load_data_orggcn(dataset_str):
     val_mask = sample_mask(idx_val, labels.shape[0])
     test_mask = sample_mask(idx_test, labels.shape[0])
 
-    #return adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
     features = normalize(features)
-    adj = preprocess_adj(adj)
+
 
     features = torch.FloatTensor(np.array(features.todense()))
-    labels = torch.LongTensor(np.where(labels)[1])
-    adj = sparse_mx_to_torch_sparse_tensor(adj)
+
     
     print('node number:', features.shape[0])
     print('training sample:',sum(train_mask))
@@ -148,7 +147,49 @@ def load_data_orggcn(dataset_str):
     idx_val = torch.LongTensor(np.where(val_mask)[0])
     idx_test = torch.LongTensor(np.where(test_mask)[0])
     
-    return adj, features, labels, idx_train, idx_val, idx_test
+
+    y_train = np.zeros(labels.shape)
+    y_val = np.zeros(labels.shape)
+    y_test = np.zeros(labels.shape)
+    y_train[train_mask, :] = labels[train_mask, :]
+    y_val[val_mask, :] = labels[val_mask, :]
+    y_test[test_mask, :] = labels[test_mask, :]
+    adj=adj.astype(np.float32)
+    adj_ad1 = adj
+    adj_sum_ad = np.sum(adj_ad1, axis=0)
+    adj_sum_ad = np.asarray(adj_sum_ad)
+    adj_sum_ad = adj_sum_ad.tolist()
+    adj_sum_ad = adj_sum_ad[0]
+    adj_ad_cov = adj
+    Mc = adj_ad_cov.tocoo()
+    adj = preprocess_adj(adj)
+    adj_delta = torch.FloatTensor(np.array(adj.todense()))
+    # caculate n-hop neighbors
+    G = nx.DiGraph(graph)
+    #inf= pickle.load(open('adj_citeseer.pkl', 'rb'))
+   
+    print('astar length')
+    for node_i,path in tqdm(nx.shortest_path_length(G)):
+        for node_j, path_len in path.items():                
+            adj_delta[node_i][node_j] = path_len
+    a = open("dijskra_citeseer.pkl", 'wb')
+    pickle.dump(adj_delta, a)
+   #######
+
+
+    fw = open('ri_index_c_0.5_citeseer_highorder_1_x_abs.pkl', 'rb')
+    ri_index = pickle.load(fw)
+    fw.close()
+
+    fw = open('ri_all_c_0.5_citeseer_highorder_1_x_abs.pkl', 'rb')
+    ri_all = pickle.load(fw)
+    fw.close()
+    # Evaluate structural interaction between the structural fingerprints of node i and j
+    adj_delta = structural_interaction(ri_index, ri_all, adj_delta)
+    labels = torch.LongTensor(np.where(labels)[1])
+    adj = sparse_mx_to_torch_sparse_tensor(adj)
+    return adj, features,idx_train, idx_val, idx_test, train_mask, val_mask, test_mask,labels,adj_delta
+
 
 
 def single_gen_path(pathRes, shape, pathLen=3, Nratio=0.6, Ndeg=2):
@@ -320,3 +361,45 @@ def gen_pathm(nheads=[8], matpath=None, Nratio=0.6, Ndeg=2):     # nheads=[8]: d
         pickle.dump(pathM, pathfile)
         print('pathM saved')
     return pathM
+
+
+def structural_interaction(ri_index, ri_all, g):
+    """structural interaction between the structural fingerprints for citeseer"""
+    for i in range(len(ri_index)):
+        for j in range(len(ri_index)):
+            intersection = set(ri_index[i]).intersection(set(ri_index[j]))
+            union = set(ri_index[i]).union(set(ri_index[j]))
+            intersection = list(intersection)
+            union = list(union)
+            intersection_ri_alli = []
+            intersection_ri_allj = []
+            union_ri_alli = []
+            union_ri_allj = []
+            if i < len(g) and j < len(g[i]):
+                g[i][j] = 0
+                if len(intersection) == 0:
+                    g[i][j] = 0.0001
+                    break
+                else:
+                    for k in tqdm(range(len(intersection))):
+                        intersection_ri_alli.append(ri_all[i][ri_index[i].tolist().index(intersection[k])])
+                        intersection_ri_allj.append(ri_all[j][ri_index[j].tolist().index(intersection[k])])
+                    union_rest = set(union).difference(set(intersection))
+                    union_rest = list(union_rest)
+                    if len(union_rest) == 0:
+                        g[i][j] = 0.0001
+                        break
+                    else:
+                        for k in range(len(union_rest)):
+                            if union_rest[k] in ri_index[i]:
+                                union_ri_alli.append(ri_all[i][ri_index[i].tolist().index(union_rest[k])])
+                            else:
+                                union_ri_allj.append(ri_all[j][ri_index[j].tolist().index(union_rest[k])])
+                    k_max = max(intersection_ri_allj, intersection_ri_alli)
+                    k_min = min(intersection_ri_allj, intersection_ri_alli)
+                    union_ri_allj = k_max + union_ri_allj
+                    union_num = np.sum(np.array(union_ri_allj), axis=0)
+                    inter_num = np.sum(np.array(k_min), axis=0)
+                    g[i][j] = inter_num / union_num
+
+    return g

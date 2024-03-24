@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 from torch.nn.modules.module import Module
 from torch_sparse import spmm
+import sys
 from torch_scatter import scatter_add, scatter_max
 
 import scipy
@@ -26,13 +27,14 @@ class SpGraphAttentionLayer(nn.Module):
     Sparse version GAT layer, similar to https://arxiv.org/abs/1710.10903
     """
 
-    def __init__(self, in_features, out_features, dropout, alpha, concat=True, layerN=''):
+    def __init__(self, in_features, out_features, dropout, alpha, adj_ad, concat=True, layerN=''):
         super(SpGraphAttentionLayer, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.alpha = alpha
         self.concat = concat
         self.layerN = layerN
+        self.adj_ad=adj_ad
 
         self.W = nn.Parameter(torch.zeros(size=(in_features, out_features)))
         nn.init.xavier_normal_(self.W.data, gain=1.414)
@@ -65,8 +67,17 @@ class SpGraphAttentionLayer(nn.Module):
         self.lenAtt = nn.Parameter(torch.zeros(size=(1, 2*out_features)))
         nn.init.xavier_normal_(self.lenAtt.data, gain=1.414)
 
-        self.dropout = nn.Dropout(dropout)
+        self.dropout_p = nn.Dropout(dropout)
+        self.dropout = dropout
         self.leakyrelu = nn.LeakyReLU(self.alpha)
+
+        self.a_adsf = nn.Parameter(torch.zeros(size=(2*out_features, 1)))
+        nn.init.xavier_uniform_(self.a.data, gain=1.414)
+
+        self.W_si = nn.Parameter(torch.zeros(size=(1, 1)))
+        nn.init.xavier_uniform_(self.W_si.data, gain=1.414)
+        self.W_ei = nn.Parameter(torch.zeros(size=(1, 1)))
+        nn.init.xavier_uniform_(self.W_ei.data, gain=1.414)
 
 
     def gat_layer(self, input, adj, genPath=False, eluF=True):
@@ -90,10 +101,10 @@ class SpGraphAttentionLayer(nn.Module):
                 scisp = convert.to_scipy_sparse_matrix(edge, p_a_e, N)
                 scipy.sparse.save_npz(os.path.join(genPath, 'attmat_{:s}.npz'.format(self.layerN)), scisp)
 
-        edge_e = torch.exp(edge_e_a - torch.max(edge_e_a))                  # edge_e: E
+        edge_e_p = torch.exp(edge_e_a - torch.max(edge_e_a))                  # edge_e: E
         # e_rowsum = spmm(edge, edge_e, N, torch.ones(size=(N,1)))     # e_rowsum: N x 1
-        e_rowsum = spmm(edge, edge_e, N,torch.ones(size=(N,1)).size(-2),  torch.ones(size=(N,1)))
-        edge_e = self.dropout(edge_e)       # add dropout improve from 82.4 to 83.8
+        e_rowsum = spmm(edge, edge_e_p, N,torch.ones(size=(N,1)).size(-2),  torch.ones(size=(N,1)))
+        edge_e = self.dropout_p(edge_e_p)       # add dropout improve from 82.4 to 83.8
         # edge_e: E
         
         h_prime = spmm(edge, edge_e, N, h.size(-2), h)
@@ -103,6 +114,30 @@ class SpGraphAttentionLayer(nn.Module):
             return F.elu(h_prime)
         else:
             return h_prime
+        
+    
+    def adsf_layer(self, input, adj):
+        h = torch.mm(input, self.W)
+        N = h.size()[0]
+        a_input = torch.cat([h.repeat(1, N).view(N* N, -1), h.repeat(N, 1)], dim=1).view(N, -1, 2 * self.out_features)
+        e = self.leakyrelu(torch.matmul(a_input, self.a_adsf).squeeze(2))
+        s=self.adj_ad
+
+        # combine sij and eij
+        e=abs(self.W_ei)*e+abs(self.W_si)*s
+
+        zero_vec = -9e15*torch.ones_like(e)
+        k_vec=-9e15*torch.ones_like(e)
+        np.set_printoptions(threshold=sys.maxsize)
+        attention = torch.where(adj.to_dense()>0 , e, zero_vec) 
+        attention = F.softmax(attention, dim=1)
+        attention = F.dropout(attention, self.dropout, training=self.training)
+        h_prime = torch.matmul(attention, h)
+        if self.concat:
+            return F.elu(h_prime)
+        else:
+            return h_prime
+
 
 
     def pathat_layer(self, input, pathM, pathlens, eluF=True):
@@ -126,16 +161,16 @@ class SpGraphAttentionLayer(nn.Module):
             #pathfeat = torch.mean(pathfeat, dim=1)     #
             att_feat = torch.cat( (pathfeat, pathh[i[0,:],:]), dim=1 ).t()
             if pathlen_iter==2:
-                path_att = self.leakyrelu(self.patha_2.mm(att_feat).squeeze())
+                path_att_p = self.leakyrelu(self.patha_2.mm(att_feat).squeeze())
             else:
-                path_att = self.leakyrelu(self.patha_3.mm(att_feat).squeeze())    
+                path_att_p = self.leakyrelu(self.patha_3.mm(att_feat).squeeze())    
             # softmax of p_a -> p_a_e
-            path_att = path_att - scatter_max(path_att, i[0,:], dim=0, dim_size=N)[0][i[0,:]]
-            path_att = path_att.exp()
-            path_att = path_att / (scatter_add(path_att, i[0,:], dim=0, dim_size=N)[i[0,:]] \
+            path_att_p = path_att_p - scatter_max(path_att_p, i[0,:], dim=0, dim_size=N)[0][i[0,:]]
+            path_att_p = path_att_p.exp()
+            path_att_p = path_att_p / (scatter_add(path_att_p, i[0,:], dim=0, dim_size=N)[i[0,:]] \
                                     + torch.Tensor([9e-15]))
-            path_att = path_att.view(-1,1)
-            path_att = self.dropout(path_att)         # add dropout here of p_a_e
+            path_att_p = path_att_p.view(-1,1)
+            path_att = self.dropout_p(path_att_p)         # add dropout here of p_a_e
             w_pathfeat = torch.mul(pathfeat, path_att)
             h_path_prime = scatter_add(w_pathfeat, i[0,:], dim=0)
             # h_path_prime is the feature embedded from paths  N*feat
@@ -156,7 +191,7 @@ class SpGraphAttentionLayer(nn.Module):
             path_att = path_att / (scatter_add(path_att, leni, dim=0, dim_size=N)[leni] \
                                     + torch.Tensor([9e-15]))
             path_att = path_att.view(-1,1)
-            # path_att = self.dropout(path_att)         # add dropout here of p_a_e
+            # path_att = self.dropout_p(path_att)         # add dropout here of p_a_e
             w_pathfeat = torch.mul(pathfeat_all, path_att)
             h_path_prime = scatter_add(w_pathfeat, leni, dim=0)
 
@@ -176,4 +211,63 @@ class SpGraphAttentionLayer(nn.Module):
             return self.gat_layer(input, adj, genPath=genPath)
         elif mode=="SPAGAN":
             return self.pathat_layer(input, pathM=pathM, pathlens=pathlens)
-        
+        elif mode=="Combine":
+            h1 = self.gat_layer(input, adj, genPath=genPath, eluF=False)
+            h2 = self.pathat_layer(input, pathM=pathM, pathlens=pathlens, eluF=False)
+            h = torch.cat((h1,h2), dim=1)
+            return F.elu( h )
+        elif mode =="ADSF":
+            return self.adsf_layer(input, adj)
+
+# class StructuralFingerprintLayer(nn.Module):
+#     """
+#     adaptive structural fingerprint layer
+#     """
+
+#     def __init__(self, in_features, out_features, dropout, alpha,adj_ad, concat=True,):
+#         super(StructuralFingerprintLayer, self).__init__()
+#         self.dropout_p = dropout
+#         self.in_features = in_features
+#         self.out_features = out_features
+#         self.alpha = alpha
+#         self.concat = concat
+#         self.adj_ad=adj_ad
+#         self.W = nn.Parameter(torch.zeros(size=(in_features, out_features)))
+#         nn.init.xavier_uniform_(self.W.data, gain=1.414)
+#         self.a = nn.Parameter(torch.zeros(size=(2*out_features, 1)))
+#         nn.init.xavier_uniform_(self.a.data, gain=1.414)
+#         self.leakyrelu = nn.LeakyReLU(self.alpha)
+#         self.W_si = nn.Parameter(torch.zeros(size=(1, 1)))
+#         nn.init.xavier_uniform_(self.W_si.data, gain=1.414)
+#         self.W_ei = nn.Parameter(torch.zeros(size=(1, 1)))
+#         nn.init.xavier_uniform_(self.W_ei.data, gain=1.414)
+
+
+#     def forward(self, input, adj):
+#         h = torch.mm(input, self.W)
+#         N = h.size()[0]
+#         a_input = torch.cat([h.repeat(1, N).view(N* N, -1), h.repeat(N, 1)], dim=1).view(N, -1, 2 * self.out_features)
+#         e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(2))
+#         s=self.adj_ad
+#         e = e.cuda()
+#         s=s.cuda()
+
+#         # combine sij and eij
+#         e=abs(self.W_ei)*e+abs(self.W_si)*s
+
+#         zero_vec = -9e15*torch.ones_like(e)
+#         k_vec=-9e15*torch.ones_like(e)
+#         adj=adj.cuda()
+#         np.set_printoptions(threshold=np.nan)
+#         attention = torch.where(adj>0 , e, zero_vec)
+#         attention = F.softmax(attention, dim=1)
+#         attention = F.dropout(attention, self.dropout, training=self.training)
+#         h_prime = torch.matmul(attention, h)
+#         if self.concat:
+#             return F.elu(h_prime)
+#         else:
+#             return h_prime
+
+#     def __repr__(self):
+#         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
+

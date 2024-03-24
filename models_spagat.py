@@ -5,7 +5,7 @@ from layers_spagat import SpGraphAttentionLayer
 
 
 class SpaGAT(nn.Module):
-    def __init__(self, nfeat, nhid, nclass, dropout, alpha, nheads):
+    def __init__(self, nfeat, nhid, nclass, dropout, alpha, nheads, adj_ad):
         """Sparse version of GAT."""
         super(SpaGAT, self).__init__()
         self.dropout = dropout
@@ -14,6 +14,7 @@ class SpaGAT(nn.Module):
                                                  nhid, 
                                                  dropout=dropout, 
                                                  alpha=alpha, 
+                                                 adj_ad=adj_ad,
                                                  concat=True, layerN='1_'+str(i)) for i in range(nheads[0])]
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
@@ -22,6 +23,7 @@ class SpaGAT(nn.Module):
                                              nclass,
                                              dropout=dropout, 
                                              alpha=alpha, 
+                                             adj_ad=adj_ad,
                                              concat=False, layerN='2_'+str(i))  for i in range(nheads[1])]
 
         for i, out_att in enumerate(self.out_atts):
