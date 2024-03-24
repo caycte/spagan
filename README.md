@@ -24,3 +24,37 @@ Activating the corresponding conda env if you use a new conda environment.
 ```
 python train_spgat.py
 ```
+
+---
+# Note Christine
+
+## Model
+*models_spagat.py*: load le modèle global, on peut choisir les différentes layers: GAT ou ADSF ou SPAGAN dans *SpGraphAttentionLayer* qui est dans le fichier *layers_spagat.py* avec l'argument *mode*. On peut les combiner aussi, il faut rajouter un mode combiné dans ce cas.
+
+*layers_spagat.py* : *SpGraphAttentionLayer*:
+- gat_layer : GAT layer
+- adsf_layer: ADSF layer
+- pathat_layer: SPAGAN layer
+
+
+## Ce qui a été fait en plus du repo original de SPAGAN
+
+- Ajout adsf_layer: ADSF layer dans *layers_spagat.py*
+- Modification pipeline dans train_spagat.py en ajoutant l'argument adj_ad lorsqu'il le fallait et ajout de l'entraînement de ADSF en ajoutant le if mode == "ADSF"
+- dans utils.py pour load_data_orggcn.py j'ai essayé de merge les 2 façons de load les data entre le repo SPAGAN et ADSF pour avoir le adj_ad et ça tourne pour l'instant mais j'ai peut-être mal fait un truc parce que l'accuracy de SPAGAN est à 82% mtn alors qu'avant c'était à 84% donc à voir si on essaye de voir ce qui s'est mal passé ou si on modifie toute la pipeline pour avoir 2 façons de load les data entre SPAGAN ET ADSF
+- supprimer les .cuda() car j'ai un mac
+- fix les bug de SPAGAN originel pour que ça tourne
+
+## Ce qu'il reste à faire
+
+- comprendre un peu comment il entraine les 3 modèles les uns après les autres (python train_spagat.py à partir de la ligne 124)
+- dans utils.py pour load_data_orggcn.py : corriger le load_data_orggcn.py pour ravoir les 84% d'accuracy du SPAGAN (voir repo originel et comparer avec le load_data de ADSF )
+- peut-être ajouter un device en argument pour pouvoir faire tourner sur GPU et rajouter .to(device) là où j'ai supprimer .cuda()
+- modifier le code pour pas que ce soit copier/coller
+- évaluer les 3 modèles sur les différents dataset
+- faire le rapport
+
+
+
+
+
