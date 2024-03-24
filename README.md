@@ -41,7 +41,7 @@ python train_spgat.py
 
 - Ajout adsf_layer: ADSF layer dans *layers_spagat.py*
 - Modification pipeline dans train_spagat.py en ajoutant l'argument adj_ad lorsqu'il le fallait et ajout de l'entraînement de ADSF en ajoutant le if mode == "ADSF"
-- dans utils.py pour load_data_orggcn.py j'ai essayé de merge les 2 façons de load les data entre le repo SPAGAN et ADSF pour avoir le adj_ad et ça tourne pour l'instant mais j'ai peut-être mal fait un truc parce que l'accuracy de SPAGAN est à 82% mtn alors qu'avant c'était à 84% donc à voir si on essaye de voir ce qui s'est mal passé ou si on modifie toute la pipeline pour avoir 2 façons de load les data entre SPAGAN ET ADSF
+- (dans utils.py pour load_data_orggcn.py j'ai essayé de merge les 2 façons de load les data entre le repo SPAGAN et ADSF pour avoir le adj_ad et ça tourne pour l'instant mais j'ai peut-être mal fait un truc parce que l'accuracy de SPAGAN est à 82% mtn alors qu'avant c'était à 84% donc à voir si on essaye de voir ce qui s'est mal passé ou si on modifie toute la pipeline pour avoir 2 façons de load les data entre SPAGAN ET ADSF) => ça marche finalement, pas besoin de changer
 - supprimer les .cuda() car j'ai un mac
 - fix les bug de SPAGAN originel pour que ça tourne
 
@@ -55,6 +55,13 @@ python train_spgat.py
 - faire le rapport
 
 
+## Performance pour le moment
 
+Avec les paramètres par défaut juste en lançant:
+python train_spagat.py
 
+GAT Test set results: accuracy= 0.82
+SPAGAN Test set results: loss= 0.8199 accuracy= 0.8340
+ADSF Test set results: loss= 0.6842 accuracy= 0.8270
+best result at epoch: 1853
 
