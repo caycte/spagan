@@ -4,8 +4,8 @@ import torch
 import pickle
 import time
 import os
-import graph_tool.topology as g_topo
-import graph_tool.generation as g_gen
+# import graph_tool.topology as g_topo
+#import graph_tool.generation as g_gen
 import networkx as nx
 import sys
 from tqdm import tqdm
@@ -44,7 +44,7 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
         np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int64))
     values = torch.from_numpy(sparse_mx.data)
     shape = torch.Size(sparse_mx.shape)
-    return torch.sparse.FloatTensor(indices, values, shape)
+    return torch.sparse_coo_tensor(indices, values, shape) #torch.sparse.FloatTensor
 
 
 def parse_index_file(filename):
@@ -76,6 +76,23 @@ def preprocess_adj(adj):
     adj_normalized = normalize_adj(adj + sp.eye(adj.shape[0]))
     return adj_normalized
 
+def load_raw_data(dataset_str):
+
+    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
+    objects = []
+    for i in range(len(names)):
+        with open("data/{}/ind.{}.{}".format(dataset_str,dataset_str, names[i]), 'rb') as f:
+            if sys.version_info > (3, 0):
+                objects.append(pickle.load(f, encoding='latin1'))
+            else:
+                objects.append(pickle.load(f))
+
+    x, y, tx, ty, allx, ally, graph = tuple(objects)
+    return x, y, tx, ty, allx, ally, graph
+
+
+
+
 def load_data_orggcn(dataset_str):
     """
     Loads input data from gcn/data directory
@@ -93,17 +110,8 @@ def load_data_orggcn(dataset_str):
     :param dataset_str: Dataset name
     :return: All data input files loaded (as well the training/test data).
     """
-    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
-    objects = []
-    for i in range(len(names)):
-        with open("data/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
-            if sys.version_info > (3, 0):
-                objects.append(pickle.load(f, encoding='latin1'))
-            else:
-                objects.append(pickle.load(f))
-
-    x, y, tx, ty, allx, ally, graph = tuple(objects)
-    test_idx_reorder = parse_index_file("data/ind.{}.test.index".format(dataset_str))
+    x, y, tx, ty, allx, ally, graph = load_raw_data(dataset_str)
+    test_idx_reorder = parse_index_file(f"data/{dataset_str}/ind.{dataset_str}.test.index")
     test_idx_range = np.sort(test_idx_reorder)
     
     if dataset_str == 'citeseer':
@@ -165,23 +173,23 @@ def load_data_orggcn(dataset_str):
     adj = preprocess_adj(adj)
     adj_delta = torch.FloatTensor(np.array(adj.todense()))
     # caculate n-hop neighbors
-    G = nx.DiGraph(graph)
-    #inf= pickle.load(open('adj_citeseer.pkl', 'rb'))
+    # G = nx.DiGraph(graph)
+    # #inf= pickle.load(open('adj_citeseer.pkl', 'rb'))
    
-    print('astar length')
-    for node_i,path in tqdm(nx.shortest_path_length(G)):
-        for node_j, path_len in path.items():                
-            adj_delta[node_i][node_j] = path_len
-    a = open("dijskra_citeseer.pkl", 'wb')
-    pickle.dump(adj_delta, a)
+    # print('astar length')
+    # for node_i,path in tqdm(nx.shortest_path_length(G)):
+    #     for node_j, path_len in path.items():                
+    #         adj_delta[node_i][node_j] = path_len
+    # a = open("data/adsf/dijkstra_citeseer.pkl", 'wb')
+    # pickle.dump(adj_delta, a)
    #######
 
 
-    fw = open('ri_index_c_0.5_citeseer_highorder_1_x_abs.pkl', 'rb')
+    fw = open('data/adsf/ri_index_c_0.5_citeseer_highorder_1_x_abs.pkl', 'rb')
     ri_index = pickle.load(fw)
     fw.close()
 
-    fw = open('ri_all_c_0.5_citeseer_highorder_1_x_abs.pkl', 'rb')
+    fw = open('data/adsf/ri_all_c_0.5_citeseer_highorder_1_x_abs.pkl', 'rb')
     ri_all = pickle.load(fw)
     fw.close()
     # Evaluate structural interaction between the structural fingerprints of node i and j
@@ -260,20 +268,34 @@ def graph_tool_apsp(spmatrix, cutoff=3):
     nodeN = spmatrix.shape[0]
     edgeN = spmatrix.data.shape[0]
     weightM = spmatrix.data
-    print(nodeN, edgeN)
     
     t = time.time()
-    g = g_gen.Graph()
-    g.add_vertex(nodeN)
+    #g = g_gen.Graph()
+    #g.add_vertex(nodeN)
+    G = nx.Graph() 
+    G.add_nodes_from(range(nodeN))
+    spmatrix_coo = spmatrix.tocoo()
+
+    # Add edges from the sparse matrix
+    for r, c in zip(spmatrix_coo.row, spmatrix_coo.col):
+        G.add_edge(r, c)  # NetworkX automatically adds nodes if they don't exist
+
+    # Add weights to the edges
+    # Assuming 'weightM' is an array or list of weights corresponding to edges
+    for r, c, w in zip(spmatrix_coo.row, spmatrix_coo.col, spmatrix_coo.data):
+        # Set the 'weight' attribute for the edges
+        G[r][c]['weight'] = w
+
+    
     row = spmatrix.row.reshape(-1,1)
     col = spmatrix.col.reshape(-1,1)
     edge_list = np.hstack((row, col)).tolist()
-    g.add_edge_list(edge_list)
+    # g.add_edge_list(edge_list)
 
-    weights = g.new_edge_property("double")
-    for i in range(edgeN):
-        weights[g.vertex(row[i]),g.vertex(col[i])] = weightM[i]
-    print("construct time: {:.4f}".format(time.time()-t))
+    # weights = g.new_edge_property("double")
+    # for i in range(edgeN):
+    #     weights[g.vertex(row[i]),g.vertex(col[i])] = weightM[i]
+    #print("construct time: {:.4f}".format(time.time()-t))
 
     pathRes = {}
     for centerNode in range(nodeN):
@@ -282,14 +304,38 @@ def graph_tool_apsp(spmatrix, cutoff=3):
         distDict = {}
         pathDict = {}
 
-        dist, pred = g_topo.shortest_distance(g, source=g.vertex(centerNode),  weights=weights,pred_map=True)
-        dist = dist.a  # to list
-        pred = pred.a  # to list
+        # dist, paths = nx.single_source_dijkstra(G, source=centerNode, weight='weight')
+        # pred = {node: path[-2] if len(path) > 1 else None for node, path in paths.items()}
+        # #dist, pred = g_topo.shortest_distance(g, source=g.vertex(centerNode),  weights=weights,pred_map=True)
+        # dist = list(dist.values())#dist.a  # to list
+        # pred = list(pred.values())#pred.a  # to list
+
+        dist, paths = nx.single_source_dijkstra(G, source=centerNode, weight='weight')
+        pred = {node: path[-2] if len(path) > 1 else None for node, path in paths.items()}
+
+        # Convert 'dist' to a numpy array (if the node labels are integers and contiguous)
+        max_node = nodeN#max(G.nodes)
+        dist_array = np.full(max_node + 1, np.inf)
+        for node, distance in dist.items():
+            dist_array[node] = distance
+
+        # Convert 'pred' to a format similar to vertex property map
+        # This assumes nodes are labeled with consecutive integers starting at 0
+        pred_array = np.full(max_node + 1, -1)  # Using -1 for nodes with no predecessor
+        for node, predecessor in pred.items():
+            if predecessor is not None:
+                pred_array[node] = predecessor
+        dist, pred = dist_array, pred_array
+        
         pathDict[centerNode] = [centerNode]
         pathkeys = set(pathDict.keys())
+        # print("NodeN",nodeN)
+        # print("pred",len(pred))
+        # print("dist",len(dist))
         for i in range(1,cutoff):   # generate path with length at most cutoff
             newpathkeys = []
             for col in range(nodeN):
+
                 if col!=centerNode and pred[col] in pathkeys:
                     pathDict[col] = pathDict[pred[col]]+[col]
                     distDict[col] = dist[col]
@@ -403,3 +449,45 @@ def structural_interaction(ri_index, ri_all, g):
                     g[i][j] = inter_num / union_num
 
     return g
+
+def update_or_create_pickle(folder_path, file_name, new_content):
+    # Create the directory if it doesn't exist
+    file_path = os.path.join(folder_path, file_name)
+    directory = os.path.dirname(file_path)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # Write (replace) the content to the file
+    with open(file_path, 'wb') as file:
+        pickle.dump(new_content, file)
+
+    print(f"File saved at {file_path}")
+
+# def update_or_create_pickle(folder_path, file_name, new_content):
+#     # Construct the full file path
+#     file_path = os.path.join(folder_path, file_name)
+
+#     # Create the folder if it doesn't exist
+#     if not os.path.exists(folder_path):
+#         os.makedirs(folder_path)
+
+#     # Update or create the pickle file
+#     if os.path.isfile(file_path):
+#         # Load existing content and update
+#         with open(file_path, 'rb') as file:
+#             try:
+#                 existing_content = pickle.load(file)
+#                 existing_content.update(new_content)
+#                 content_to_save = existing_content
+#             except EOFError:
+#                 # If file is empty or corrupted, use new content
+#                 content_to_save = new_content
+#     else:
+#         # If file doesn't exist, prepare new content for saving
+#         content_to_save = new_content
+
+#     # Write (dump) the content to the file
+#     with open(file_path, 'wb') as file:
+#         pickle.dump(content_to_save, file)
+
+#     print(f"File saved at {file_path}")

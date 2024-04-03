@@ -16,13 +16,13 @@ We use [torch_geometric](https://github.com/rusty1s/pytorch_geometric), [torch_s
 We use [networkx](https://networkx.github.io/) to load the graph dataset.
 
 #### graph-tool
-We use graph-tool for fast APSP calculation. Please follow the [official website](https://graph-tool.skewed.de/) to install.
+We use graph-tool for fast APSP calculation. Please follow the [official website](https://graph-tool.skewed.de/) to install. 
 
 ### Run the code:
 Activating the corresponding conda env if you use a new conda environment.
 
 ```
-python train_spgat.py
+python train_spgat.py --mode=SPAGAN --dataset=cora
 ```
 
 ---
@@ -64,4 +64,31 @@ GAT Test set results: accuracy= 0.82
 SPAGAN Test set results: loss= 0.8199 accuracy= 0.8340
 ADSF Test set results: loss= 0.6842 accuracy= 0.8270
 best result at epoch: 1853
+
+## Note Max
+
+### General
+les données sont réorganisées par dataset, il y a aussi 2 folders qui correspondent aux données processées pour ADSF et SPAGAN. Je pense réorganiser l'ensemble pour avoir un data folder comme suit:
+
+-data
+    -processed
+        -ADSF
+        -SPAGAN
+    -raw
+        -citeseer
+        -etc
+
+
+l'entrainement enregistre les train curves dans results\dataframes et les plots correspondants dans results/plots. Je crois qu'il y a un problème dans la fonction qui trouve l'indice des images existantes (0.png, 1.png etc) car il me semble que pour le moment, si on run deux fois l'entrainement avec le meme model et dataset, les résultats sont overwrited.
+
+Autre remarque: les train curves et val curves sont inversées sur les plots, pas compris d'ou venait le probleme.
+
+
+### ADSF
+il faut creer pleins de fichiers au préalable avec les RWR process et les [dataset]_dijkstra.pkl. Tout est dans le notebook adsf.ipynb
+J'ai pas encore fait un entrainement complet d'ADSF
+
+### SPAGAN
+Ca marche sans graph tool, avec les meme perfs qu'avant
+
 

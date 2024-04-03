@@ -19,13 +19,14 @@ torch.manual_seed(10)
 torch.cuda.manual_seed(10)
 torch.backends.cudnn.deterministic = True
 
+from data_analysis import plot_training_loss_and_accuracy
 # Training settings
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='Disables CUDA training.')
 parser.add_argument('--fastmode', action='store_true', default=False,
                     help='Validate during training pass.')
-parser.add_argument('--epochs', type=int, default=100000,
+parser.add_argument('--epochs', type=int, default=1000,
                     help='Number of epochs to train.')
 parser.add_argument('--lr', type=float, default=0.005,  # 0.01 for pubmed, 0.005 for others
                     help='Initial learning rate.')
@@ -54,10 +55,14 @@ parser.add_argument('--logging', action='store_true', default=True,
                     help='print logging info.')
 parser.add_argument('--use_bn', action='store_true', default=False,
                     help='whether use bn.')
-
+parser.add_argument('--mode', type=str, default='GAT', # SPAGAN or ADSF or GAT
+                    help='which layer to use')
 warmup = 500
 
 args = parser.parse_args()
+mode = args.mode
+print(f"Model: {mode}")
+print(f"Dataset: {args.dataset}")
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 model_path = os.path.join('models', args.model_subdir)
 if not os.path.isdir(model_path):
@@ -68,7 +73,7 @@ if not os.path.isdir(matpath):
     os.makedirs(matpath)
 
 from utils import accuracy, load_data_orggcn, load_pathm, gen_pathm
-from models_spagat import SpaGAT
+from models import SpaGAT
 
 # Load data
 adj, features,  idx_train, idx_val, idx_test, train_mask, val_mask, test_mask,labels ,adj_ad= load_data_orggcn(args.dataset)
@@ -122,6 +127,8 @@ Ndeg = 0.5
 
 ##### one model test #####
 for var in range(args.var_it):
+    acc_train_list, acc_val_list, loss_train_list, loss_val_list = [],[],[],[]
+
     model = SpaGAT(nfeat=features.shape[1],
             nhid=args.hidden,
             nclass=labels.max().item() + 1,
@@ -140,16 +147,22 @@ for var in range(args.var_it):
     bad_counter = 0
     best = args.epochs + 1
     best_epoch = 0
-    mode = 'GAT'
     
+    gen_pathm([8], matpath=matpath, Nratio=Nratio, Ndeg=Ndeg)
+    pathM = load_pathm(args.dataset, matpath=matpath)
     startEpoch = 0
     for epoch in range(args.epochs):
-        loss_value = train(epoch, mode=mode)[1]
-        
-        loss_value = test(idx_val, mode=mode)[1]
+
+        acc_train, loss_train = train(epoch, mode=mode)        
+        acc_val, loss_val = test(idx_val, mode=mode)
+        acc_train_list.append(acc_train)
+        acc_val_list.append(acc_val)
+        loss_train_list.append(loss_train)
+        loss_val_list.append(loss_val)
+
         torch.save(model.state_dict(), model_path+'/{}.pkl'.format(epoch))
-        if loss_value < best:
-            best = loss_value
+        if loss_val < best:
+            best = loss_val
             best_epoch = epoch
             bad_counter = 0
         else:
@@ -164,19 +177,18 @@ for var in range(args.var_it):
                     os.remove(file)
             
             model.load_state_dict(torch.load(model_path+'/{}.pkl'.format(best_epoch)))
-
+            
             if mode == 'GAT':
                 genPath = matpath
                 test(genPath=genPath, logging=True, mode=mode)
-                gen_pathm([8], matpath=matpath, Nratio=Nratio, Ndeg=Ndeg)
-                pathM = load_pathm(args.dataset, matpath=matpath)
-                mode = 'SPAGAN'
+  
             elif mode == 'SPAGAN':
                 test(logging=True, mode=mode)
-                mode = 'ADSF'
+
             elif mode == 'ADSF':
                 test(logging=True, mode=mode)
                 break
+
             startEpoch = epoch
             bad_counter = 0
             best = args.epochs + 1
@@ -188,7 +200,14 @@ for var in range(args.var_it):
             epoch_nb = int(filebase.split('.')[0])
             if epoch_nb < best_epoch:
                 os.remove(file)
-        
+
+
+    plot_training_loss_and_accuracy(acc_train_list=acc_train_list,
+                                    acc_val_list=acc_val_list,
+                                    loss_train_list = loss_train_list,
+                                    loss_val_list=loss_val_list, 
+                                    model = mode, 
+                                    dataset=args.dataset)    
     files = glob.glob(model_path+'/*.pkl')
     for file in files:
         filebase = os.path.basename(file)
