@@ -107,7 +107,7 @@ def train(epoch, logging=args.logging, mode='GAT'):
             'loss_val: {:.4f}'.format(loss_val.item()),
             'acc_val: {:.4f}'.format(acc_val.item()),
             'time: {:.4f}s'.format(time.time() - t))
-    return acc_val.item(), loss_val.item() 
+    return acc_train.item(), loss_train.item() , acc_val.item(), loss_val.item() 
 
 
 def test(idx=idx_test, logging=False, genPath=False, mode=''):
@@ -153,8 +153,7 @@ for var in range(args.var_it):
     startEpoch = 0
     for epoch in range(args.epochs):
 
-        acc_train, loss_train = train(epoch, mode=mode)        
-        acc_val, loss_val = test(idx_val, mode=mode)
+        acc_train, loss_train, acc_val, loss_val = train(epoch, mode=mode)     
         acc_train_list.append(acc_train)
         acc_val_list.append(acc_val)
         loss_train_list.append(loss_train)
