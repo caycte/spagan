@@ -1,3 +1,7 @@
 numpy
 # torch >= 1.0
 networkx
+pandas
+matplotlib
+scipy
+tqdm
