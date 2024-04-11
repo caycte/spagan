@@ -28,10 +28,10 @@ parser.add_argument('--fastmode', action='store_true', default=False,
                     help='Validate during training pass.')
 parser.add_argument('--epochs', type=int, default=1000,
                     help='Number of epochs to train.')
-parser.add_argument('--lr', type=float, default=0.005,  # 0.01 for pubmed, 0.005 for others
+parser.add_argument('--lr', type=float, default=0.01,  # 0.01 for pubmed, 0.005 for others
                     help='Initial learning rate.')
                     # 0.0085/0.01 lr 0.002 wd for citeseer -> 72.78
-parser.add_argument('--weight_decay', type=float, default=0.0005,
+parser.add_argument('--weight_decay', type=float, default=0.001,
                     help='Weight decay (L2 loss on parameters).')
 parser.add_argument('--hidden', type=int, default=8,
                     help='Number of hidden units.')
